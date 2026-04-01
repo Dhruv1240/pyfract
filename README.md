@@ -1,5 +1,5 @@
 # Modularizer
-
+ITS JUST A PROTOTYPE FOR NOW , YOU MAY FACE BUGS AND I AM CONSTANTLY WORKING TO MAKE IT A PERFECT TOOL :)
 A Python tool for splitting large Python files into smaller, cohesive modules.
 
 `modulizer.py` is the core command-line engine.
