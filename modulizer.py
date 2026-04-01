@@ -1562,7 +1562,27 @@ class ModuleWriter:
             if cross_import not in needed_imports:
                 needed_imports.append(cross_import)
 
-        return needed_imports
+        # FINAL FILTER: Remove any imports that import locally-defined symbols
+        # This prevents circular imports within the same module
+        final_imports = []
+        for import_stmt in needed_imports:
+            # Parse import statement to extract imported names
+            imported_names = set()
+            if import_stmt.startswith("from ") and " import " in import_stmt:
+                _, right = import_stmt.rsplit(" import ", 1)
+                for item in right.split(","):
+                    item = item.strip()
+                    # Handle "name as alias"
+                    if " as " in item:
+                        imported_names.add(item.split(" as ")[-1].strip())
+                    else:
+                        imported_names.add(item)
+            
+            # Only keep imports that don't import locally-defined symbols
+            if not imported_names.intersection(locally_defined):
+                final_imports.append(import_stmt)
+        
+        return final_imports
     
     @staticmethod
     def _is_in_comment(code: str, name: str) -> bool:
