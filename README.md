@@ -3,6 +3,7 @@
 Split a large Python file into a structured Python package with a GUI or CLI.
 
 Modulizer is built for big single-file scripts and bots that have become hard to navigate, maintain, or refactor manually. It analyzes the file, plans module boundaries, writes the generated package, and validates the output so you can catch bad splits early.
+## its just a prototype fr now and iam constantly working to make it better or near perfect tool for modulizing :)
 
 ## Highlights
 
@@ -204,19 +205,6 @@ The GUI is designed to be friendlier for normal users. It includes:
 - generated modules location display
 - buttons to open or copy the output path
 - command preview for equivalent CLI usage
-
-## Screenshots
-
-You can add screenshots here later, for example:
-
-- main GUI window
-- output folder after generation
-- example `module_plan.json`
-
-```markdown
-![Main GUI](docs/gui-main.png)
-![Generated Modules](docs/generated-modules.png)
-```
 
 ## Project Files
 
