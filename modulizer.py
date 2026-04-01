@@ -1235,6 +1235,14 @@ class ModuleWriter:
                 out.append(ch)
         return sorted(out)
 
+    @staticmethod
+    def _extract_future_imports(source_code: str) -> List[str]:
+        return [
+            line.strip()
+            for line in source_code.splitlines()
+            if line.lstrip().startswith("from __future__ import")
+        ]
+
     def write(
         self,
         plan: Dict[str, Any],
@@ -1316,7 +1324,8 @@ class ModuleWriter:
                 module_dependencies.update(seg.dependencies)
                 module_used_attributes.extend(seg.used_attributes)
 
-            future_lines = self._merge_future_imports(future_chunks)
+            global_future_lines = self._extract_future_imports(source_code)
+            future_lines = self._merge_future_imports(future_chunks + global_future_lines)
 
             # Determine which imports this module needs (including cross-module imports)
             needed_imports = self._get_needed_imports(
