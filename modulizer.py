@@ -1773,11 +1773,12 @@ class ModuleWriter:
     @staticmethod
     def _validate_modules(output_dir: Path, written_files: List[str]) -> Dict[str, Any]:
         """
-        COMPREHENSIVE validation of generated modules:
+        Validate generated modules without executing their runtime dependencies.
+        Checks:
         - Syntax validation
-        - Import resolution
-        - Execution testing
-        - Circular import detection
+        - Bytecode compilation
+        - Package-local relative import target resolution
+        - Optional import execution when explicitly enabled via env var
         Reports ✅/❌ status for each module
         """
         typer.echo("Validating generated modules...", err=True)
@@ -1786,6 +1787,12 @@ class ModuleWriter:
         tested_modules: Dict[str, bool] = {}
         package_name = output_dir.name
         package_parent = str(output_dir.parent.resolve())
+        enable_import_validation = os.environ.get("MODULIZER_IMPORT_VALIDATE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         inserted_path = False
         if package_parent not in sys.path:
             sys.path.insert(0, package_parent)
@@ -1805,10 +1812,21 @@ class ModuleWriter:
                     code = filepath.read_text(encoding="utf-8")
                     ast.parse(code)
 
-                    # 2. Import module through package context (validates relative imports)
-                    sys.modules.pop(fq_module_name, None)
-                    imported = importlib.import_module(fq_module_name)
-                    importlib.reload(imported)
+                    # 2. Compile without executing module top-level code.
+                    compile(code, str(filepath), "exec")
+
+                    # 3. Validate package-local relative imports without importing third-party deps.
+                    ModuleWriter._validate_relative_import_targets(
+                        code=code,
+                        output_dir=output_dir,
+                        package_name=package_name,
+                    )
+
+                    # 4. Optional deep validation for environments that want execution checks.
+                    if enable_import_validation:
+                        sys.modules.pop(fq_module_name, None)
+                        imported = importlib.import_module(fq_module_name)
+                        importlib.reload(imported)
                     status = "✅"
                     tested_modules[module_name] = True
                 except SyntaxError as e:
@@ -1841,6 +1859,29 @@ class ModuleWriter:
         if not all_valid:
             typer.echo("WARNING: Module validation revealed issues. Review errors above.", err=True)
         return {"all_valid": all_valid, "passed": passed, "total": total}
+
+    @staticmethod
+    def _validate_relative_import_targets(code: str, output_dir: Path, package_name: str) -> None:
+        """Ensure intra-package relative imports point at generated modules or package init."""
+        tree = ast.parse(code)
+        known_modules = {path.stem for path in output_dir.glob("*.py")}
+        known_modules.add(package_name)
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.level <= 0:
+                continue
+
+            target_module = node.module
+            if not target_module:
+                continue
+
+            root_name = target_module.split(".", 1)[0]
+            if root_name not in known_modules:
+                raise ImportError(
+                    f"Relative import target '.{target_module}' not found in generated package"
+                )
 
     @staticmethod
     def _slugify(value: str) -> str:
