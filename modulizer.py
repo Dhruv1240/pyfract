@@ -369,6 +369,7 @@ class LLMPlanner:
 
     DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
     DEFAULT_MODEL = "gemini-2.5-flash"
+    PLANNING_MODES = {"safe", "hybrid", "ai_first"}
 
     @staticmethod
     def _normalize_option(value: Any, default: Any) -> Any:
@@ -393,6 +394,7 @@ class LLMPlanner:
         base_url: Optional[str] = None,
         verbose: bool = False,
         allow_heuristic_fallback: bool = False,
+        planning_mode: str = "safe",
     ) -> None:
         self.model = self._normalize_option(model, self.DEFAULT_MODEL)
         self.temperature = float(self._normalize_option(temperature, 0.9))
@@ -404,6 +406,10 @@ class LLMPlanner:
         self.allow_heuristic_fallback = bool(
             self._normalize_option(allow_heuristic_fallback, False)
         )
+        requested_mode = str(self._normalize_option(planning_mode, "safe") or "safe").strip().lower()
+        aliases = {"ai-first": "ai_first", "ai first": "ai_first"}
+        requested_mode = aliases.get(requested_mode, requested_mode)
+        self.planning_mode = requested_mode if requested_mode in self.PLANNING_MODES else "safe"
         self.max_modules = max(1, int(self._normalize_option(max_modules, 8)))
         self.min_segments_per_module = max(1, int(self._normalize_option(min_segments_per_module, 2)))
         self.semantic_grouping = bool(self._normalize_option(semantic_grouping, True))
@@ -421,17 +427,19 @@ class LLMPlanner:
         self.use_google_compat = "generativelanguage.googleapis.com" in self.base_url
         self._openai_client: Optional[OpenAI] = None
 
-        if not offline:
+        needs_ai_client = self.planning_mode in {"hybrid", "ai_first"} and not self.offline
+        if needs_ai_client:
             key = api_key or os.environ.get("OPENAI_API_KEY")
-            if not key:
+            if not key and self.planning_mode == "ai_first":
                 raise RuntimeError(
                     "Missing API key. Use --api-key or set OPENAI_API_KEY."
                 )
-            self._openai_client = OpenAI(
-                base_url=raw_base,
-                api_key=key,
-                timeout=120.0,
-            )
+            if key:
+                self._openai_client = OpenAI(
+                    base_url=raw_base,
+                    api_key=key,
+                    timeout=120.0,
+                )
 
     @staticmethod
     def _message_text(message: Any) -> Optional[str]:
@@ -476,16 +484,87 @@ class LLMPlanner:
             for seg in segments
         ]
 
-        if self.offline:
-            typer.echo("Offline mode enabled: using heuristic fallback plan.", err=True)
-            return self._fallback_plan(
-                metadata,
-                max_modules=self.max_modules,
-                min_segments_per_module=self.min_segments_per_module,
-                semantic_grouping=self.semantic_grouping,
-                semantic_keywords=self.semantic_keywords,
-            )
+        heuristic_plan = self._fallback_plan(
+            metadata,
+            max_modules=self.max_modules,
+            min_segments_per_module=self.min_segments_per_module,
+            semantic_grouping=self.semantic_grouping,
+            semantic_keywords=self.semantic_keywords,
+        )
 
+        if self.offline or self.planning_mode == "safe":
+            if self.offline:
+                typer.echo("Offline mode enabled: using heuristic feature-based plan.", err=True)
+            else:
+                typer.echo("Safe planning mode enabled: using heuristic feature-based plan.", err=True)
+            return heuristic_plan
+
+        if self.planning_mode == "hybrid":
+            if self._openai_client is None:
+                typer.echo(
+                    "Hybrid planning selected but no API key/client is available. Using heuristic feature-based plan.",
+                    err=True,
+                )
+                return heuristic_plan
+            return self._plan_hybrid(summary, metadata, heuristic_plan)
+
+        return self._plan_ai_first(summary, metadata, heuristic_plan)
+
+    def _plan_hybrid(
+        self,
+        summary: str,
+        metadata: List[Dict[str, Any]],
+        heuristic_plan: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        heur_modules = len(heuristic_plan.get("modules", []))
+        messages: List[Dict[str, str]] = [
+            {
+                "role": "system",
+                "content": "You improve module plans conservatively and return precise JSON only.",
+            },
+            {
+                "role": "user",
+                "content": textwrap.dedent(
+                    f"""
+                    Improve this existing heuristic module plan without breaking it.
+                    File summary: {summary}
+
+                    Segments (JSON):
+                    {json.dumps(metadata, indent=2, default=str)}
+
+                    Current heuristic plan (JSON):
+                    {json.dumps(heuristic_plan, indent=2, default=str)}
+
+                    Rules:
+                    - Return valid JSON in the same format: {{"modules": [...], "notes": "..."}}
+                    - Every listed segment_id must exist and appear exactly once.
+                    - Do not invent segment_ids.
+                    - Stay feature-oriented and conservative.
+                    - Keep the plan at least as granular as the heuristic plan unless a merge is clearly necessary.
+                    - Avoid one giant module.
+                    - Prefer useful module names like bot_core, data_storage, moderation, analytics, visuals, battle, economy, progression, commands_general, aura_commands, shared.
+                    - If the heuristic plan is already strong, you may keep it with only better naming/descriptions.
+
+                    Constraints:
+                    - target max modules: {self.max_modules}
+                    - minimum segments per module: {self.min_segments_per_module}
+                    - heuristic module count to preserve or improve: {heur_modules}
+                    """
+                ).strip(),
+            },
+        ]
+        ai_plan = self._run_ai_planning_attempts(messages, metadata)
+        if ai_plan is None:
+            typer.echo("Hybrid planning kept the heuristic feature-based plan.", err=True)
+            return heuristic_plan
+        return ai_plan
+
+    def _plan_ai_first(
+        self,
+        summary: str,
+        metadata: List[Dict[str, Any]],
+        heuristic_plan: Dict[str, Any],
+    ) -> Dict[str, Any]:
         messages: List[Dict[str, str]] = [
             {
                 "role": "system",
@@ -515,6 +594,12 @@ class LLMPlanner:
                     }}
                     Ensure every listed segment_id exists. Each segment_id must appear exactly once across all modules. Do not invent new segment_ids; use only the provided list. Avoid duplicates.
                     Prefer cohesive modules and avoid tiny modules unless unavoidable.
+                    Avoid monolithic plans where one module contains most of the file.
+                    For large bots or multi-feature files, strongly prefer feature-based modules such as:
+                    - bot_core / events / config / data_storage
+                    - commands_general / commands_admin / commands_economy / commands_analytics
+                    - aura_core / moderation / visuals / cards / battles / tournaments / shop / leaderboards
+                    Keep data-loading code and heavy visual generation separate from command handlers when possible.
                     Constraints:
                     - target max modules: {self.max_modules}
                     - minimum segments per module: {self.min_segments_per_module}
@@ -524,8 +609,22 @@ class LLMPlanner:
                 ).strip(),
             },
         ]
+        ai_plan = self._run_ai_planning_attempts(messages, metadata)
+        if ai_plan is not None:
+            return ai_plan
+        if self.allow_heuristic_fallback:
+            typer.echo("AI-first planning failed. Falling back to heuristic feature-based plan.", err=True)
+            return heuristic_plan
+        raise RuntimeError("AI-first planning failed and heuristic fallback is disabled.")
 
-        assert self._openai_client is not None
+    def _run_ai_planning_attempts(
+        self,
+        messages: List[Dict[str, str]],
+        metadata: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        if self._openai_client is None:
+            return None
+
         client = self._openai_client
 
         def _chat_create() -> Any:
@@ -600,6 +699,33 @@ class LLMPlanner:
 
                 # STRICTLY validate AI output
                 is_valid, error_msg = self._validate_ai_plan(parsed_plan, metadata)
+                if not is_valid and error_msg.startswith("Circular dependencies detected:"):
+                    merged_plan = self._merge_cyclic_plan(parsed_plan, metadata)
+                    merged_valid, merged_error = self._validate_ai_plan(merged_plan, metadata)
+                    if merged_valid:
+                        granular_enough, granular_msg = self._is_plan_granular_enough(
+                            merged_plan,
+                            metadata,
+                            requested_max_modules=self.max_modules,
+                        )
+                        if not granular_enough:
+                            last_error = f"AI plan collapsed too aggressively after cycle merge: {granular_msg}"
+                            typer.echo(
+                                f"{last_error}. Falling back to heuristic feature-based planning.",
+                                err=True,
+                            )
+                            return self._fallback_plan(
+                                metadata,
+                                max_modules=self.max_modules,
+                                min_segments_per_module=self.min_segments_per_module,
+                                semantic_grouping=self.semantic_grouping,
+                                semantic_keywords=self.semantic_keywords,
+                            )
+                        if self.verbose:
+                            typer.echo("AI plan contained module cycles; auto-merged cyclic modules.", err=True)
+                        return merged_plan
+                    last_error = f"AI plan validation failed after cycle merge: {merged_error}"
+                    continue
                 if not is_valid:
                     last_error = f"AI plan validation failed: {error_msg}"
                     continue
@@ -621,25 +747,9 @@ class LLMPlanner:
             if self.verbose:
                 typer.echo(f"AI planning attempt {attempt}/{self.max_retries} failed: {last_error}", err=True)
 
-        if not self.allow_heuristic_fallback:
-            raise RuntimeError(
-                f"AI planning failed after {self.max_retries} attempt(s): {last_error}. "
-                "Heuristic fallback is disabled by default (AI is prioritized). "
-                "Retry with --heuristic-fallback to allow heuristic planning after AI failure, "
-                "or use --offline for heuristic-only mode."
-            )
-        typer.echo(
-            f"AI planning failed after {self.max_retries} attempts ({last_error}). "
-            "Falling back to heuristic plan (--heuristic-fallback enabled).",
-            err=True,
-        )
-        return self._fallback_plan(
-            metadata,
-            max_modules=self.max_modules,
-            min_segments_per_module=self.min_segments_per_module,
-            semantic_grouping=self.semantic_grouping,
-            semantic_keywords=self.semantic_keywords,
-        )
+        if self.verbose:
+            typer.echo(f"AI planning exhausted retries: {last_error}", err=True)
+        return None
 
     @staticmethod
     def _complete_missing_segments(plan: Dict[str, Any], metadata: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -873,6 +983,140 @@ class LLMPlanner:
         return module_deps
 
     @staticmethod
+    def _strongly_connected_components(graph: Dict[str, Set[str]]) -> List[List[str]]:
+        index: Dict[str, int] = {}
+        lowlink: Dict[str, int] = {}
+        stack: List[str] = []
+        on_stack: Set[str] = set()
+        result: List[List[str]] = []
+
+        def strongconnect(node: str) -> None:
+            index[node] = len(index)
+            lowlink[node] = index[node]
+            stack.append(node)
+            on_stack.add(node)
+
+            for neighbor in graph.get(node, set()):
+                if neighbor not in index:
+                    strongconnect(neighbor)
+                    lowlink[node] = min(lowlink[node], lowlink[neighbor])
+                elif neighbor in on_stack:
+                    lowlink[node] = min(lowlink[node], index[neighbor])
+
+            if lowlink[node] == index[node]:
+                component: List[str] = []
+                while True:
+                    current = stack.pop()
+                    on_stack.remove(current)
+                    component.append(current)
+                    if current == node:
+                        break
+                result.append(component)
+
+        for node in graph:
+            if node not in index:
+                strongconnect(node)
+
+        return result
+
+    @staticmethod
+    def _merge_cyclic_plan(plan: Dict[str, Any], metadata: List[Dict[str, Any]]) -> Dict[str, Any]:
+        modules = [m for m in plan.get("modules", []) if isinstance(m, dict)]
+        if not modules:
+            return plan
+
+        module_deps = LLMPlanner._build_module_dependencies({"modules": modules}, metadata)
+        sccs = LLMPlanner._strongly_connected_components(module_deps)
+        cyclic_groups = [sorted(component) for component in sccs if len(component) > 1]
+        if not cyclic_groups:
+            return plan
+
+        module_map = {str(module["name"]): module for module in modules if module.get("name")}
+        merged_modules: List[Dict[str, Any]] = []
+        merged_names: Set[str] = set()
+
+        for cycle in cyclic_groups:
+            merged_names.update(cycle)
+            merged_segment_ids: List[str] = []
+            seen_segments: Set[str] = set()
+            descriptions: List[str] = []
+            for module_name in cycle:
+                module = module_map.get(module_name)
+                if not module:
+                    continue
+                description = str(module.get("description", "")).strip()
+                if description:
+                    descriptions.append(description)
+                for seg_id in module.get("segment_ids", []):
+                    if isinstance(seg_id, str) and seg_id not in seen_segments:
+                        seen_segments.add(seg_id)
+                        merged_segment_ids.append(seg_id)
+
+            merged_modules.append(
+                {
+                    "name": "_".join(cycle),
+                    "description": " / ".join(dict.fromkeys(descriptions))
+                    or f"Merged cyclic modules: {', '.join(cycle)}",
+                    "segment_ids": merged_segment_ids,
+                }
+            )
+
+        final_modules = [
+            module for module in modules if str(module.get("name")) not in merged_names
+        ]
+        final_modules.extend(merged_modules)
+
+        merged_plan = dict(plan)
+        merged_plan["modules"] = final_modules
+        merged_notes = str(plan.get("notes", "")).strip()
+        merged_names_flat = ", ".join(
+            sorted(name for group in cyclic_groups for name in group)
+        )
+        merged_plan["notes"] = (
+            f"{merged_notes}\nAuto-merged cyclic modules during AI plan validation: {merged_names_flat}."
+            if merged_notes
+            else f"Auto-merged cyclic modules during AI plan validation: {merged_names_flat}."
+        )
+        return merged_plan
+
+    @staticmethod
+    def _is_plan_granular_enough(
+        plan: Dict[str, Any],
+        metadata: List[Dict[str, Any]],
+        requested_max_modules: int,
+    ) -> Tuple[bool, str]:
+        modules = [m for m in plan.get("modules", []) if isinstance(m, dict)]
+        total_segments = len(metadata)
+        module_count = len(modules)
+        if total_segments <= 0:
+            return True, ""
+
+        segment_counts = [
+            len([seg for seg in module.get("segment_ids", []) if isinstance(seg, str)])
+            for module in modules
+        ]
+        largest_module = max(segment_counts, default=0)
+        largest_ratio = largest_module / total_segments
+
+        if total_segments >= 80:
+            minimum_useful_modules = min(max(4, requested_max_modules // 2), requested_max_modules)
+            if module_count < minimum_useful_modules:
+                return (
+                    False,
+                    f"only {module_count} modules remained for {total_segments} segments "
+                    f"(expected at least {minimum_useful_modules})",
+                )
+
+            if largest_ratio > 0.55:
+                return (
+                    False,
+                    f"largest module contains {largest_module}/{total_segments} segments "
+                    f"({largest_ratio:.0%}), which is too monolithic",
+                )
+
+        return True, ""
+
+    @staticmethod
     def _detect_cycles(graph: Dict[str, Set[str]]) -> List[List[str]]:
         """Detect cycles in dependency graph using DFS."""
         cycles = []
@@ -919,6 +1163,16 @@ class LLMPlanner:
             return {"modules": [], "notes": "No segments to process."}
 
         semantic_keywords = [k.strip().lower() for k in (semantic_keywords or []) if k.strip()]
+
+        if len(metadata) >= 80:
+            feature_plan = LLMPlanner._feature_first_plan(
+                metadata=metadata,
+                max_modules=max_modules,
+                min_segments_per_module=min_segments_per_module,
+                semantic_keywords=semantic_keywords,
+            )
+            if feature_plan is not None:
+                return feature_plan
 
         # Build segment records
         segments = []
@@ -1086,6 +1340,22 @@ class LLMPlanner:
     @staticmethod
     def _semantic_bucket(name: str) -> str:
         name_lower = name.lower()
+        if any(word in name_lower for word in ["aura", "rank", "leaderboard", "score", "streak"]):
+            return "aura"
+        if any(word in name_lower for word in ["graph", "stats", "trend", "predict", "compare", "board", "analytics"]):
+            return "analytics"
+        if any(word in name_lower for word in ["card", "image", "draw", "theme", "badge", "avatar", "visual"]):
+            return "visuals"
+        if any(word in name_lower for word in ["battle", "duel", "fight", "stake", "shield"]):
+            return "battle"
+        if any(word in name_lower for word in ["shop", "inventory", "item", "equip", "buy"]):
+            return "economy"
+        if any(word in name_lower for word in ["tournament", "daily", "reward", "claim", "prize"]):
+            return "progression"
+        if any(word in name_lower for word in ["message", "toxic", "moderation", "semantic", "safe", "hate"]):
+            return "moderation"
+        if any(word in name_lower for word in ["discord", "bot", "ready", "event", "prefix", "command", "guild", "channel"]):
+            return "bot"
         if any(word in name_lower for word in ["load", "save", "data", "file", "read", "write", "parse", "serialize"]):
             return "data"
         if any(word in name_lower for word in ["config", "setup", "init", "env", "settings"]):
@@ -1099,6 +1369,144 @@ class LLMPlanner:
         if any(word in name_lower for word in ["http", "api", "client", "request", "response"]):
             return "integration"
         return "other"
+
+    @staticmethod
+    def _feature_bucket(name: str, kind: str) -> str:
+        name_lower = name.lower()
+
+        if kind == "block":
+            if any(word in name_lower for word in ["block_1_", "block_2_", "block_3_"]):
+                return "bot_core"
+            bucket = LLMPlanner._semantic_bucket(name_lower)
+            if bucket == "data":
+                return "data_storage"
+            if bucket == "config":
+                return "config"
+
+        if any(word in name_lower for word in ["on_ready", "on_message", "prefix", "gate", "bot", "channel", "guild"]):
+            return "bot_core"
+        if any(word in name_lower for word in ["load_", "save_", "json", "data", "config", "file", "inventory"]):
+            return "data_storage"
+        if any(word in name_lower for word in ["graph", "stats", "trend", "predict", "compare", "board", "leaderboard", "servercompare"]):
+            return "analytics"
+        if any(word in name_lower for word in ["card", "image", "draw", "theme", "badge", "avatar", "visual", "progress_bar"]):
+            return "visuals"
+        if any(word in name_lower for word in ["battle", "duel", "stake", "shield"]):
+            return "battle"
+        if any(word in name_lower for word in ["shop", "inventory", "item", "equip", "buy"]):
+            return "economy"
+        if any(word in name_lower for word in ["tournament", "daily", "streak", "reward", "claim", "snapshot", "prize"]):
+            return "progression"
+        if any(word in name_lower for word in ["toxic", "semantic", "moderation", "safe", "hate", "hostile", "banter", "aura_local", "aura_rules"]):
+            return "moderation"
+        if any(word in name_lower for word in ["help", "invite", "debug", "reset", "enable", "disable", "status", "info", "ping", "commandlist"]):
+            return "commands_general"
+        if any(word in name_lower for word in ["slash", "aura", "rank", "auraof", "auraboard"]):
+            return "aura_commands"
+
+        return "shared"
+
+    @staticmethod
+    def _feature_first_plan(
+        metadata: List[Dict[str, Any]],
+        max_modules: int,
+        min_segments_per_module: int,
+        semantic_keywords: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        semantic_keywords = [k.strip().lower() for k in (semantic_keywords or []) if k.strip()]
+        preferred_order = [
+            "bot_core",
+            "config",
+            "data_storage",
+            "moderation",
+            "aura_commands",
+            "commands_general",
+            "analytics",
+            "visuals",
+            "battle",
+            "economy",
+            "progression",
+            "shared",
+        ]
+        buckets: Dict[str, List[str]] = {name: [] for name in preferred_order}
+
+        for entry in metadata:
+            name = str(entry.get("name", ""))
+            kind = str(entry.get("kind", ""))
+            bucket = LLMPlanner._feature_bucket(name, kind)
+
+            if semantic_keywords and bucket == "shared":
+                lowered_name = name.lower()
+                if any(keyword in lowered_name for keyword in semantic_keywords):
+                    bucket = "commands_general"
+
+            buckets.setdefault(bucket, []).append(entry["segment_id"])
+
+        non_empty = {key: value for key, value in buckets.items() if value}
+        if len(non_empty) < 4:
+            return None
+
+        groups = [segment_ids for _, segment_ids in non_empty.items()]
+        target_modules = min(max_modules, max(1, len(metadata) // max(1, min_segments_per_module)))
+        segments = [
+            {
+                "id": entry["segment_id"],
+                "kind": entry["kind"],
+                "name": entry["name"],
+                "dependencies": set(entry.get("dependencies", [])),
+                "line": int(entry["lines"].split("-")[0]) if "lines" in entry else 0,
+                "tokens": set(re.findall(r"[a-zA-Z0-9]+", str(entry["name"]).lower())),
+            }
+            for entry in metadata
+        ]
+
+        groups = LLMPlanner._normalize_groups(
+            groups=groups,
+            segments=segments,
+            target_modules=target_modules,
+            min_segments_per_module=min_segments_per_module,
+            semantic_keywords=semantic_keywords,
+        )
+
+        id_to_bucket = {}
+        for bucket_name, segment_ids in non_empty.items():
+            for seg_id in segment_ids:
+                id_to_bucket[seg_id] = bucket_name
+
+        modules: List[Dict[str, Any]] = []
+        used_names: Set[str] = set()
+        for group in groups:
+            bucket_votes: Dict[str, int] = {}
+            for seg_id in group:
+                bucket = id_to_bucket.get(seg_id, "shared")
+                bucket_votes[bucket] = bucket_votes.get(bucket, 0) + 1
+            module_name = max(
+                bucket_votes.items(),
+                key=lambda item: (item[1], -preferred_order.index(item[0]) if item[0] in preferred_order else 0),
+            )[0]
+
+            base_name = module_name
+            counter = 1
+            while base_name in used_names:
+                base_name = f"{module_name}_{counter}"
+                counter += 1
+            used_names.add(base_name)
+
+            modules.append(
+                {
+                    "name": base_name,
+                    "description": f"Feature-oriented module for {base_name.replace('_', ' ')}.",
+                    "segment_ids": group,
+                }
+            )
+
+        return {
+            "modules": modules,
+            "notes": (
+                "Generated via feature-first heuristic planning for a large file; "
+                "prioritized functional separation before dependency normalization."
+            ),
+        }
 
     @staticmethod
     def _simple_grouping(segments: List[Dict[str, Any]], semantic_keywords: Optional[List[str]] = None) -> List[List[str]]:
@@ -1724,9 +2132,13 @@ class ModuleWriter:
         module_map = {module["name"]: module for module in modules}
         merged_modules: List[Dict[str, Any]] = []
         merged_names: Set[str] = set()
+        total_segments = sum(
+            len([seg_id for seg_id in module.get("segment_ids", []) if isinstance(seg_id, str)])
+            for module in modules
+        )
+        skipped_cycles: List[List[str]] = []
 
         for cycle in cyclic_groups:
-            merged_names.update(cycle)
             merged_segment_ids: List[str] = []
             seen_segments: Set[str] = set()
             descriptions: List[str] = []
@@ -1741,6 +2153,15 @@ class ModuleWriter:
                         merged_segment_ids.append(seg_id)
                         seen_segments.add(seg_id)
 
+            # Keep feature-oriented structure intact: only auto-merge small/local cycles.
+            if len(cycle) > 3:
+                skipped_cycles.append(cycle)
+                continue
+            if total_segments and len(merged_segment_ids) / total_segments > 0.35:
+                skipped_cycles.append(cycle)
+                continue
+
+            merged_names.update(cycle)
             merged_name = "_".join(cycle)
             merged_description = (
                 " / ".join(dict.fromkeys(descriptions))
@@ -1763,11 +2184,18 @@ class ModuleWriter:
         merged_plan = dict(plan)
         merged_plan["modules"] = final_modules
         merged_notes = str(plan.get("notes", "")).strip()
-        merged_plan["notes"] = (
-            f"{merged_notes}\nAuto-merged cyclic modules: {', '.join(sorted([n for group in cyclic_groups for n in group]))}."
-            if merged_notes
-            else f"Auto-merged cyclic modules: {', '.join(sorted([n for group in cyclic_groups for n in group]))}."
-        )
+        note_parts: List[str] = []
+        merged_flat = sorted([n for group in cyclic_groups if group not in skipped_cycles for n in group])
+        skipped_flat = sorted([n for group in skipped_cycles for n in group])
+        if merged_flat:
+            note_parts.append(f"Auto-merged cyclic modules: {', '.join(merged_flat)}.")
+        if skipped_flat:
+            note_parts.append(
+                f"Preserved larger cyclic module groups to avoid collapsing the plan: {', '.join(skipped_flat)}."
+            )
+        if merged_notes:
+            note_parts.insert(0, merged_notes)
+        merged_plan["notes"] = "\n".join(note_parts)
         return merged_plan
 
     @staticmethod
@@ -1904,6 +2332,7 @@ def init_config(output_file: Path = typer.Option("modulizer_config.json", help="
         "model": LLMPlanner.DEFAULT_MODEL,
         "api_key": "<YOUR_API_KEY>",
         "openai_base_url": LLMPlanner.DEFAULT_BASE_URL,
+        "planning_mode": "safe",
         "temperature": 0.9,
         "top_p": 0.3,
         "top_k": 20,
@@ -1915,7 +2344,7 @@ def init_config(output_file: Path = typer.Option("modulizer_config.json", help="
         "semantic_keywords": [],
         "ai_retries": 5,
         "strict_validation": False,
-        "heuristic_fallback": False,
+        "heuristic_fallback": True,
     }
     try:
         output_file.write_text(json.dumps(sample_config, indent=2))
@@ -1946,6 +2375,10 @@ def modularize(
     openai_base_url: Optional[str] = typer.Option(
         None,
         help=f"API base URL (overrides OPENAI_BASE_URL; default {LLMPlanner.DEFAULT_BASE_URL!r}).",
+    ),
+    planning_mode: Optional[str] = typer.Option(
+        None,
+        help="Planning mode: safe, hybrid, or ai_first.",
     ),
     temperature: Optional[float] = typer.Option(
         None,
@@ -2021,6 +2454,7 @@ def modularize(
     model = _coerce_option_default(model)
     api_key = _coerce_option_default(api_key)
     openai_base_url = _coerce_option_default(openai_base_url)
+    planning_mode = _coerce_option_default(planning_mode)
     temperature = _coerce_option_default(temperature)
     top_p = _coerce_option_default(top_p)
     top_k = _coerce_option_default(top_k)
@@ -2046,6 +2480,7 @@ def modularize(
     model = model or config_data.get("model") or LLMPlanner.DEFAULT_MODEL
     api_key = api_key or config_data.get("api_key")
     openai_base_url = openai_base_url or config_data.get("openai_base_url")
+    planning_mode = str(planning_mode or config_data.get("planning_mode") or "safe").strip().lower()
     temperature = temperature if temperature is not None else float(config_data.get("temperature", 0.9))
     top_p = top_p if top_p is not None else float(config_data.get("top_p", 0.3))
     top_k = top_k if top_k is not None else int(config_data.get("top_k", 20))
@@ -2061,8 +2496,21 @@ def modularize(
     heuristic_fallback = (
         heuristic_fallback
         if heuristic_fallback is not None
-        else bool(config_data.get("heuristic_fallback", False))
+        else bool(config_data.get("heuristic_fallback", True))
     )
+    if planning_mode in {"ai-first", "ai first"}:
+        planning_mode = "ai_first"
+    if planning_mode not in LLMPlanner.PLANNING_MODES:
+        typer.echo(
+            f"Warning: Unknown planning mode {planning_mode!r}; using 'safe' instead.",
+            err=True,
+        )
+        planning_mode = "safe"
+    if planning_mode == "safe":
+        offline = True
+        heuristic_fallback = True
+    elif planning_mode == "hybrid":
+        heuristic_fallback = True
     raw_keywords = semantic_keywords if semantic_keywords is not None else config_data.get("semantic_keywords", [])
     if isinstance(raw_keywords, str):
         semantic_keywords_list = [k.strip().lower() for k in raw_keywords.split(",") if k.strip()]
@@ -2100,6 +2548,7 @@ def modularize(
 
     if verbose:
         typer.echo(f"Planning module structure with {len(segments)} segments...", err=True)
+        typer.echo(f"Planning mode: {planning_mode}", err=True)
     planner = LLMPlanner(
         model=model,
         api_key=api_key,
@@ -2116,6 +2565,7 @@ def modularize(
         base_url=openai_base_url,
         verbose=verbose,
         allow_heuristic_fallback=heuristic_fallback,
+        planning_mode=planning_mode,
     )
     try:
         plan = planner.plan(summary, segments)
