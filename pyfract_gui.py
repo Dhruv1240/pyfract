@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple desktop UI for modulizer.
+Simple desktop UI for pyfract.
 """
 
 from __future__ import annotations
@@ -18,13 +18,13 @@ from tkinter import filedialog, messagebox, ttk
 import typer
 
 HERE = Path(__file__).resolve().parent
-LOCAL_MODULIZER_PATH = HERE / "modulizer.py"
+LOCAL_MODULIZER_PATH = HERE / "pyfract.py"
 if not LOCAL_MODULIZER_PATH.exists():
-    raise FileNotFoundError(f"Could not find local modulizer.py at {LOCAL_MODULIZER_PATH}")
+    raise FileNotFoundError(f"Could not find local pyfract.py at {LOCAL_MODULIZER_PATH}")
 
-spec = importlib.util.spec_from_file_location("modulizer_gui_local_modulizer", LOCAL_MODULIZER_PATH)
+spec = importlib.util.spec_from_file_location("pyfract_gui_local_pyfract", LOCAL_MODULIZER_PATH)
 if spec is None or spec.loader is None:
-    raise ImportError(f"Failed to load modulizer module from {LOCAL_MODULIZER_PATH}")
+    raise ImportError(f"Failed to load pyfract module from {LOCAL_MODULIZER_PATH}")
 modulizer = importlib.util.module_from_spec(spec)
 if modulizer is None:
     raise ImportError(f"Failed to create module object from spec for {LOCAL_MODULIZER_PATH}")
