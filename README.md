@@ -1,10 +1,10 @@
-# Modulizer
+# Pyfract
 
 Turn one large Python file into a cleaner Python package with either a GUI or a CLI.
 
-Modulizer is a better, more practical version of the tool for people who want to break up huge scripts without doing the whole split by hand. It analyzes a single-file project, groups code into modules, writes the package, and validates the result so you can catch obvious issues early.
+Pyfract is a better, more practical version of the tool for people who want to break up huge scripts without doing the whole split by hand. It analyzes a single-file project, groups code into modules, writes the package, and validates the result so you can catch obvious issues early.
 
-## Why shoudl u use my Modulizer
+## Why Pyfract
 
 - Built for large Python files that became hard to manage
 - Supports both GUI and CLI workflows
@@ -21,7 +21,7 @@ One of the main goals of this tool is to make modularization easier for beginner
 - The generated `module_plan.json` makes it easier to inspect what the tool decided
 - The safest default path is clear: start with `safe`, review the result, then improve manually if needed
 
-If you are new to code organization, refactoring, or package structure, Modulizer is meant to give you a much easier starting point.
+If you are new to code organization, refactoring, or package structure, Pyfract is meant to give you a much easier starting point.
 
 ## Highlights
 
@@ -34,7 +34,7 @@ If you are new to code organization, refactoring, or package structure, Modulize
 
 ## Best Use Case
 
-Modulizer works best when you have:
+Pyfract works best when you have:
 
 - a very large `.py` file
 - many top-level functions, classes, and constants
@@ -251,4 +251,4 @@ The GUI is designed to be more friendly for normal users and beginners. It inclu
 
 ## Final Note
 
-Modulizer is meant to be a better and more beginner-friendly version of this kind of tool. It helps automate one of the most annoying parts of refactoring large Python files, while still being honest about the fact that bugs, edge cases, and manual cleanup can still happen.
+Pyfract is meant to be a better and more beginner-friendly version of this kind of tool. It helps automate one of the most annoying parts of refactoring large Python files, while still being honest about the fact that bugs, edge cases, and manual cleanup can still happen.
