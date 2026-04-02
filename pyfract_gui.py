@@ -9,7 +9,6 @@ import json
 import subprocess
 import threading
 from pathlib import Path
-import importlib.util
 import os
 import sys
 import tkinter as tk
@@ -21,20 +20,10 @@ HERE = Path(__file__).resolve().parent
 LOCAL_MODULIZER_PATH = HERE / "pyfract.py"
 if not LOCAL_MODULIZER_PATH.exists():
     raise FileNotFoundError(f"Could not find local pyfract.py at {LOCAL_MODULIZER_PATH}")
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
 
-spec = importlib.util.spec_from_file_location("pyfract_gui_local_pyfract", LOCAL_MODULIZER_PATH)
-if spec is None or spec.loader is None:
-    raise ImportError(f"Failed to load pyfract module from {LOCAL_MODULIZER_PATH}")
-modulizer = importlib.util.module_from_spec(spec)
-if modulizer is None:
-    raise ImportError(f"Failed to create module object from spec for {LOCAL_MODULIZER_PATH}")
-
-sys.modules[spec.name] = modulizer
-try:
-    spec.loader.exec_module(modulizer)
-except Exception:
-    del sys.modules[spec.name]
-    raise
+import pyfract as modulizer
 
 
 class ModulizerGUI:
@@ -211,7 +200,7 @@ class ModulizerGUI:
 
         actions = ttk.Frame(frm)
         actions.grid(row=13, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
-        self.run_btn = ttk.Button(actions, text="Run Modularizer", command=self._start_run)
+        self.run_btn = ttk.Button(actions, text="Run Pyfract", command=self._start_run)
         self.run_btn.pack(side="left")
         ttk.Button(actions, text="Use Suggested Output Folder", command=self._apply_suggested_output_dir).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Quit", command=self.root.destroy).pack(side="right")
@@ -221,7 +210,7 @@ class ModulizerGUI:
         cmd_frame.columnconfigure(0, weight=1)
         ttk.Label(
             cmd_frame,
-            text="Equivalent terminal commands (run from the folder that contains modulizer.py). API key is not copied—use OPENAI_API_KEY or add --api-key manually.",
+            text="Equivalent terminal commands (run from the folder that contains pyfract.py). API key is not copied—use OPENAI_API_KEY or add --api-key manually.",
             wraplength=820,
         ).grid(row=0, column=0, columnspan=3, sticky="ew", padx=8, pady=(6, 4))
 
@@ -303,7 +292,7 @@ class ModulizerGUI:
     def _copy_created_location(self) -> None:
         current = self.created_location.get().strip()
         if not current or current == "Not created yet.":
-            messagebox.showinfo("No folder yet", "Run the modularizer first, or choose an output directory.")
+            messagebox.showinfo("No folder yet", "Run Pyfract first, or choose an output directory.")
             return
         self.root.clipboard_clear()
         self.root.clipboard_append(current)
@@ -313,7 +302,7 @@ class ModulizerGUI:
     def _copy_run_command(self) -> None:
         command = self.run_command.get().strip()
         if not command or command == "Run a modularization first.":
-            messagebox.showinfo("No run command yet", "Run the modularizer first so the GUI can detect the generated entrypoint.")
+            messagebox.showinfo("No run command yet", "Run Pyfract first so the GUI can detect the generated entrypoint.")
             return
         self.root.clipboard_clear()
         self.root.clipboard_append(command)
@@ -323,7 +312,7 @@ class ModulizerGUI:
     def _open_created_location(self) -> None:
         raw = self.created_location.get().strip()
         if not raw or raw == "Not created yet.":
-            messagebox.showinfo("No folder yet", "Run the modularizer first, or choose an output directory.")
+            messagebox.showinfo("No folder yet", "Run Pyfract first, or choose an output directory.")
             return
         path = Path(raw)
         target = path if path.exists() else path.parent
@@ -339,7 +328,7 @@ class ModulizerGUI:
         self._is_running = running
         self.run_btn.configure(state="disabled" if running else "normal")
         if running:
-            self.status_text.set("Running modularizer...")
+            self.status_text.set("Running Pyfract...")
         else:
             self.status_text.set("Ready.")
 
@@ -409,7 +398,7 @@ class ModulizerGUI:
             self._modularize_command_line(),
             "",
             "# Optional: create a JSON config template",
-            subprocess.list2cmdline([sys.executable, str(LOCAL_MODULIZER_PATH), "init-config", "--output-file", "modulizer_config.json"]),
+            subprocess.list2cmdline([sys.executable, str(LOCAL_MODULIZER_PATH), "init-config", "--output-file", "pyfract_config.json"]),
             "",
             "# Modularize using that config",
             subprocess.list2cmdline(
@@ -422,12 +411,12 @@ class ModulizerGUI:
                     "--output-dir",
                     self.output_dir.get().strip() or "output_modules",
                     "--config",
-                    "modulizer_config.json",
+                    "pyfract_config.json",
                 ]
             ),
             "",
             "# Show version",
-            subprocess.list2cmdline(["python", "modulizer.py", "version"]),
+            subprocess.list2cmdline(["python", "pyfract.py", "version"]),
             "",
             "# API key (PowerShell) — omit --api-key on the command line",
             r"# $env:OPENAI_API_KEY = 'your-key-here'",
