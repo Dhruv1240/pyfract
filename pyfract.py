@@ -26,9 +26,14 @@ __all__ = [
     "app",
     "init_config",
     "modularize",
+    "main",
     "version",
 ]
 
 
-if __name__ == "__main__":
+def main() -> None:
     app()
+
+
+if __name__ == "__main__":
+    main()

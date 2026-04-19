@@ -1,0 +1,5 @@
+[console_scripts]
+pyfract = pyfract:main
+
+[gui_scripts]
+pyfract-gui = pyfract_gui:main

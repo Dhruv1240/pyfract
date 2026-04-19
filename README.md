@@ -75,10 +75,29 @@ AI planning before anything else.
 
 ## Quick Start
 
+### Install With pip
+
+Install from a local checkout:
+
+```powershell
+pip install .
+```
+
+Or install in editable mode while developing:
+
+```powershell
+pip install -e .
+```
+
+After installation, use:
+
+- `pyfract` for the CLI
+- `pyfract-gui` for the desktop UI
+
 ### GUI
 
 ```powershell
-python pyfract_gui.py
+pyfract-gui
 ```
 
 Recommended settings for large files:
@@ -92,19 +111,19 @@ Recommended settings for large files:
 Safe mode:
 
 ```powershell
-python pyfract.py modularize --input-file bot.py --output-dir modules --planning-mode safe
+pyfract modularize --input-file bot.py --output-dir modules --planning-mode safe
 ```
 
 Hybrid mode:
 
 ```powershell
-python pyfract.py modularize --input-file bot.py --output-dir modules --planning-mode hybrid
+pyfract modularize --input-file bot.py --output-dir modules --planning-mode hybrid
 ```
 
 AI-first mode:
 
 ```powershell
-python pyfract.py modularize --input-file bot.py --output-dir modules --planning-mode ai_first
+pyfract modularize --input-file bot.py --output-dir modules --planning-mode ai_first
 ```
 
 ## What Gets Generated
