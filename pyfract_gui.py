@@ -76,7 +76,8 @@ class ModulizerGUI:
         pad = {"padx": 8, "pady": 6}
         frm = ttk.Frame(self.root)
         frm.pack(fill="both", expand=True, padx=10, pady=10)
-        frm.columnconfigure(1, weight=1)
+        frm.columnconfigure(0, weight=1)
+        frm.rowconfigure(1, weight=1)
 
         intro = ttk.Label(
             frm,
@@ -87,25 +88,38 @@ class ModulizerGUI:
             wraplength=900,
             justify="left",
         )
-        intro.grid(row=0, column=0, columnspan=3, sticky="ew", **pad)
+        intro.grid(row=0, column=0, sticky="ew", **pad)
 
-        ttk.Label(frm, text="Input Python file").grid(row=1, column=0, sticky="w", **pad)
-        ttk.Entry(frm, textvariable=self.input_file, width=72).grid(row=1, column=1, sticky="ew", **pad)
-        ttk.Button(frm, text="Browse", command=self._pick_input).grid(row=1, column=2, **pad)
+        notebook = ttk.Notebook(frm)
+        notebook.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
 
-        ttk.Label(frm, text="Output directory").grid(row=2, column=0, sticky="w", **pad)
-        ttk.Entry(frm, textvariable=self.output_dir, width=72).grid(row=2, column=1, sticky="ew", **pad)
-        ttk.Button(frm, text="Browse", command=self._pick_output).grid(row=2, column=2, **pad)
+        core_tab = ttk.Frame(notebook)
+        ai_tab = ttk.Frame(notebook)
+        logs_tab = ttk.Frame(notebook)
+
+        notebook.add(core_tab, text="Core Settings")
+        notebook.add(ai_tab, text="AI Parameters")
+        notebook.add(logs_tab, text="Logs")
+
+        core_tab.columnconfigure(1, weight=1)
+
+        ttk.Label(core_tab, text="Input Python file").grid(row=0, column=0, sticky="w", **pad)
+        ttk.Entry(core_tab, textvariable=self.input_file, width=72).grid(row=0, column=1, sticky="ew", **pad)
+        ttk.Button(core_tab, text="Browse", command=self._pick_input).grid(row=0, column=2, **pad)
+
+        ttk.Label(core_tab, text="Output directory").grid(row=1, column=0, sticky="w", **pad)
+        ttk.Entry(core_tab, textvariable=self.output_dir, width=72).grid(row=1, column=1, sticky="ew", **pad)
+        ttk.Button(core_tab, text="Browse", command=self._pick_output).grid(row=1, column=2, **pad)
 
         output_hint = ttk.Label(
-            frm,
+            core_tab,
             text="This folder becomes the generated Python package. Example: C:\\project\\bot_modules",
             foreground="#555555",
         )
-        output_hint.grid(row=3, column=1, columnspan=2, sticky="w", padx=8, pady=(0, 6))
+        output_hint.grid(row=2, column=1, columnspan=2, sticky="w", padx=8, pady=(0, 6))
 
-        location_frame = ttk.LabelFrame(frm, text="Generated Modules Location")
-        location_frame.grid(row=4, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
+        location_frame = ttk.LabelFrame(core_tab, text="Generated Modules Location")
+        location_frame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
         location_frame.columnconfigure(0, weight=1)
         ttk.Entry(
             location_frame,
@@ -115,8 +129,8 @@ class ModulizerGUI:
         ttk.Button(location_frame, text="Open Folder", command=self._open_created_location).grid(row=0, column=1, padx=8, pady=8)
         ttk.Button(location_frame, text="Copy Path", command=self._copy_created_location).grid(row=0, column=2, padx=8, pady=8)
 
-        run_frame = ttk.LabelFrame(frm, text="Run Info")
-        run_frame.grid(row=5, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
+        run_frame = ttk.LabelFrame(core_tab, text="Run Info")
+        run_frame.grid(row=4, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
         run_frame.columnconfigure(1, weight=1)
         ttk.Label(run_frame, text="Entrypoint").grid(row=0, column=0, sticky="w", padx=8, pady=6)
         ttk.Entry(run_frame, textvariable=self.entrypoint_module, state="readonly").grid(row=0, column=1, sticky="ew", padx=8, pady=6)
@@ -128,32 +142,41 @@ class ModulizerGUI:
         run_btns.grid(row=2, column=2, padx=8, pady=6)
         ttk.Button(run_btns, text="Copy Run Command", command=self._copy_run_command).pack(side="left")
 
-        ttk.Label(frm, text="Model").grid(row=6, column=0, sticky="w", **pad)
-        ttk.Entry(frm, textvariable=self.model).grid(row=6, column=1, columnspan=2, sticky="ew", **pad)
+        actions = ttk.Frame(core_tab)
+        actions.grid(row=5, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
+        self.run_btn = ttk.Button(actions, text="Run Pyfract", command=self._start_run)
+        self.run_btn.pack(side="left")
+        ttk.Button(actions, text="Use Suggested Output Folder", command=self._apply_suggested_output_dir).pack(side="left", padx=(8, 0))
+        ttk.Button(actions, text="Quit", command=self.root.destroy).pack(side="right")
 
-        ttk.Label(frm, text="Planning mode").grid(row=7, column=0, sticky="w", **pad)
+        ai_tab.columnconfigure(1, weight=1)
+
+        ttk.Label(ai_tab, text="Model").grid(row=0, column=0, sticky="w", **pad)
+        ttk.Entry(ai_tab, textvariable=self.model).grid(row=0, column=1, columnspan=2, sticky="ew", **pad)
+
+        ttk.Label(ai_tab, text="Planning mode").grid(row=1, column=0, sticky="w", **pad)
         planning_combo = ttk.Combobox(
-            frm,
+            ai_tab,
             textvariable=self.planning_mode,
             values=["safe", "hybrid", "ai_first"],
             state="readonly",
         )
-        planning_combo.grid(row=7, column=1, sticky="w", **pad)
+        planning_combo.grid(row=1, column=1, sticky="w", **pad)
         planning_combo.bind("<<ComboboxSelected>>", lambda _event: self._on_planning_mode_changed())
         ttk.Label(
-            frm,
+            ai_tab,
             text="Safe = heuristics only, Hybrid = heuristics first with AI assist, AI-first = experimental.",
             foreground="#555555",
-        ).grid(row=7, column=2, sticky="w", padx=8, pady=6)
+        ).grid(row=1, column=2, sticky="w", padx=8, pady=6)
 
-        ttk.Label(frm, text="API key (optional if OPENAI_API_KEY is set)").grid(row=8, column=0, sticky="w", **pad)
-        ttk.Entry(frm, textvariable=self.api_key, show="*").grid(row=8, column=1, columnspan=2, sticky="ew", **pad)
+        ttk.Label(ai_tab, text="API key (optional if OPENAI_API_KEY is set)").grid(row=2, column=0, sticky="w", **pad)
+        ttk.Entry(ai_tab, textvariable=self.api_key, show="*").grid(row=2, column=1, columnspan=2, sticky="ew", **pad)
 
-        ttk.Label(frm, text="API base URL (optional)").grid(row=9, column=0, sticky="w", **pad)
-        ttk.Entry(frm, textvariable=self.openai_base_url).grid(row=9, column=1, columnspan=2, sticky="ew", **pad)
+        ttk.Label(ai_tab, text="API base URL (optional)").grid(row=3, column=0, sticky="w", **pad)
+        ttk.Entry(ai_tab, textvariable=self.openai_base_url).grid(row=3, column=1, columnspan=2, sticky="ew", **pad)
 
-        numeric = ttk.LabelFrame(frm, text="Planning Controls")
-        numeric.grid(row=10, column=0, columnspan=3, sticky="ew", padx=8, pady=10)
+        numeric = ttk.LabelFrame(ai_tab, text="Planning Controls")
+        numeric.grid(row=4, column=0, columnspan=3, sticky="ew", padx=8, pady=10)
         numeric.columnconfigure(1, weight=1)
         numeric.columnconfigure(3, weight=1)
         numeric.columnconfigure(5, weight=1)
@@ -176,8 +199,8 @@ class ModulizerGUI:
             foreground="#555555",
         ).grid(row=2, column=0, columnspan=6, sticky="w", padx=8, pady=(0, 6))
 
-        advanced = ttk.LabelFrame(frm, text="Advanced AI Settings")
-        advanced.grid(row=11, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
+        advanced = ttk.LabelFrame(ai_tab, text="Advanced AI Settings")
+        advanced.grid(row=5, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
         advanced.columnconfigure(1, weight=1)
         advanced.columnconfigure(3, weight=1)
         advanced.columnconfigure(5, weight=1)
@@ -194,8 +217,8 @@ class ModulizerGUI:
         ttk.Label(advanced, text="Frequency penalty").grid(row=1, column=0, sticky="w", padx=8, pady=6)
         ttk.Spinbox(advanced, from_=-2.0, to=2.0, increment=0.1, textvariable=self.frequency_penalty, width=8).grid(row=1, column=1, sticky="w")
 
-        toggles = ttk.Frame(frm)
-        toggles.grid(row=12, column=0, columnspan=3, sticky="w", padx=8, pady=6)
+        toggles = ttk.Frame(ai_tab)
+        toggles.grid(row=6, column=0, columnspan=3, sticky="w", padx=8, pady=6)
         ttk.Checkbutton(toggles, text="Offline mode", variable=self.offline).grid(row=0, column=0, padx=6)
         ttk.Checkbutton(toggles, text="Strict validation", variable=self.strict_validation).grid(row=0, column=1, padx=6)
         ttk.Checkbutton(toggles, text="Semantic grouping", variable=self.semantic_grouping).grid(row=0, column=2, padx=6)
@@ -206,15 +229,8 @@ class ModulizerGUI:
             variable=self.heuristic_fallback,
         ).grid(row=0, column=4, padx=6)
 
-        actions = ttk.Frame(frm)
-        actions.grid(row=13, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
-        self.run_btn = ttk.Button(actions, text="Run Pyfract", command=self._start_run)
-        self.run_btn.pack(side="left")
-        ttk.Button(actions, text="Use Suggested Output Folder", command=self._apply_suggested_output_dir).pack(side="left", padx=(8, 0))
-        ttk.Button(actions, text="Quit", command=self.root.destroy).pack(side="right")
-
-        cmd_frame = ttk.LabelFrame(frm, text="Commands (CLI)")
-        cmd_frame.grid(row=14, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
+        cmd_frame = ttk.LabelFrame(ai_tab, text="Commands (CLI)")
+        cmd_frame.grid(row=7, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
         cmd_frame.columnconfigure(0, weight=1)
         ttk.Label(
             cmd_frame,
@@ -233,15 +249,16 @@ class ModulizerGUI:
 
         self._refresh_commands_text()
 
-        log_frame = ttk.LabelFrame(frm, text="Log")
-        log_frame.grid(row=15, column=0, columnspan=3, sticky="nsew", padx=8, pady=8)
-        frm.rowconfigure(15, weight=1)
+        logs_tab.columnconfigure(0, weight=1)
+        logs_tab.rowconfigure(0, weight=1)
+        log_frame = ttk.LabelFrame(logs_tab, text="Log")
+        log_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
 
         self.log = tk.Text(log_frame, wrap="word", height=18)
         self.log.pack(fill="both", expand=True, padx=6, pady=6)
 
         status = ttk.Label(frm, textvariable=self.status_text, anchor="w")
-        status.grid(row=16, column=0, columnspan=3, sticky="ew", padx=8, pady=6)
+        status.grid(row=2, column=0, sticky="ew", padx=8, pady=6)
         self._on_planning_mode_changed()
 
     @staticmethod
