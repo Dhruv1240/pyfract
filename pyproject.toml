@@ -3,18 +3,17 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pyfract"
+name = "pyfract-modulizer"
 version = "0.1.0"
 description = "Split a large Python file into modular package outputs with CLI and GUI workflows."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Pyfract Contributors" }]
 keywords = ["python", "refactor", "modularization", "ast", "cli", "gui"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
@@ -30,10 +29,10 @@ dependencies = [
 ]
 
 [project.scripts]
-pyfract = "pyfract:main"
+pyfract-modulizer = "pyfract:main"
 
 [project.gui-scripts]
-pyfract-gui = "pyfract_gui:main"
+pyfract-modulizer-gui = "pyfract_gui:main"
 
 [tool.setuptools]
 py-modules = ["pyfract", "pyfract_gui"]

@@ -1,0 +1,5 @@
+[console_scripts]
+pyfract-modulizer = pyfract:main
+
+[gui_scripts]
+pyfract-modulizer-gui = pyfract_gui:main

@@ -77,6 +77,12 @@ AI planning before anything else.
 
 ### Install With pip
 
+Install from PyPI:
+
+```powershell
+pip install pyfract-modulizer
+```
+
 Install from a local checkout:
 
 ```powershell
@@ -91,13 +97,13 @@ pip install -e .
 
 After installation, use:
 
-- `pyfract` for the CLI
-- `pyfract-gui` for the desktop UI
+- `pyfract-modulizer` for the CLI
+- `pyfract-modulizer-gui` for the desktop UI
 
 ### GUI
 
 ```powershell
-pyfract-gui
+pyfract-modulizer-gui
 ```
 
 Recommended settings for large files:
@@ -111,19 +117,19 @@ Recommended settings for large files:
 Safe mode:
 
 ```powershell
-pyfract modularize --input-file bot.py --output-dir modules --planning-mode safe
+pyfract-modulizer modularize --input-file bot.py --output-dir modules --planning-mode safe
 ```
 
 Hybrid mode:
 
 ```powershell
-pyfract modularize --input-file bot.py --output-dir modules --planning-mode hybrid
+pyfract-modulizer modularize --input-file bot.py --output-dir modules --planning-mode hybrid
 ```
 
 AI-first mode:
 
 ```powershell
-pyfract modularize --input-file bot.py --output-dir modules --planning-mode ai_first
+pyfract-modulizer modularize --input-file bot.py --output-dir modules --planning-mode ai_first
 ```
 
 ## What Gets Generated
@@ -282,3 +288,31 @@ The GUI is designed to be more friendly for normal users and beginners. It inclu
 ## Final Note
 
 Pyfract is meant to be a better and more beginner-friendly version of this kind of tool. It helps automate one of the most annoying parts of refactoring large Python files, while still being honest about the fact that bugs, edge cases, and manual cleanup can still happen.
+
+## Release Checklist (PyPI)
+
+1. Bump `version` in `pyproject.toml`.
+2. Build distributions:
+
+```powershell
+python -m pip install --upgrade build twine
+python -m build
+```
+
+3. Upload to TestPyPI:
+
+```powershell
+python -m twine upload --repository testpypi dist/*
+```
+
+4. Verify installation from TestPyPI:
+
+```powershell
+python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ pyfract-modulizer
+```
+
+5. Upload to PyPI:
+
+```powershell
+python -m twine upload dist/*
+```
