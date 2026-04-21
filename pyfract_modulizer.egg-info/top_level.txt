@@ -1,0 +1,3 @@
+pyfract
+pyfract_core
+pyfract_gui
