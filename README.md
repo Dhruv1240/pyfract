@@ -4,7 +4,7 @@ Turn one large Python file into a cleaner Python package with either a GUI or a 
 
 Pyfract is a better, more practical version of the tool for people who want to break up huge scripts without doing the whole split by hand. It analyzes a single-file project, groups code into modules, writes the package, and validates the result so you can catch obvious issues early.
 
-## Why Pyfract
+## why should you use it?
 
 - Built for large Python files that became hard to manage
 - Supports both GUI and CLI workflows
@@ -12,9 +12,7 @@ Pyfract is a better, more practical version of the tool for people who want to b
 - Tries to reduce broken outputs with validation after generation
 - Made to be beginner-friendly, especially through the GUI flow
 
-## Beginner-Friendly Design
-
-One of the main goals of this tool is to make modularization easier for beginners.
+## simple Design
 
 - The GUI helps users run the tool without needing to remember long commands
 - The planning modes are simple to understand: `safe`, `hybrid`, and `ai_first`
@@ -32,14 +30,6 @@ If you are new to code organization, refactoring, or package structure, Pyfract 
 - Validation after generation
 - `module_plan.json` output for reviewing the final grouping
 
-## Best Use Case
-
-Pyfract works best when you have:
-
-- a very large `.py` file
-- many top-level functions, classes, and constants
-- a script, bot, or utility that grew into a monolith
-- a project where you want a strong starting split before manual cleanup
 
 ## Planning Modes
 
@@ -73,7 +63,7 @@ AI planning before anything else.
 - More experimental and less predictable
 - Best used when you are okay with rough edges
 
-## Quick Start
+## how to use
 
 ### Install With pip
 
@@ -132,7 +122,7 @@ AI-first mode:
 pyfract-modulizer modularize --input-file bot.py --output-dir modules --planning-mode ai_first
 ```
 
-## What Gets Generated
+## what gets generated 
 
 The output folder becomes a Python package containing:
 
@@ -289,30 +279,5 @@ The GUI is designed to be more friendly for normal users and beginners. It inclu
 
 Pyfract is meant to be a better and more beginner-friendly version of this kind of tool. It helps automate one of the most annoying parts of refactoring large Python files, while still being honest about the fact that bugs, edge cases, and manual cleanup can still happen.
 
-## Release Checklist (PyPI)
 
-1. Bump `version` in `pyproject.toml`.
-2. Build distributions:
-
-```powershell
-python -m pip install --upgrade build twine
-python -m build
-```
-
-3. Upload to TestPyPI:
-
-```powershell
-python -m twine upload --repository testpypi dist/*
-```
-
-4. Verify installation from TestPyPI:
-
-```powershell
-python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ pyfract-modulizer
-```
-
-5. Upload to PyPI:
-
-```powershell
-python -m twine upload dist/*
 ```
