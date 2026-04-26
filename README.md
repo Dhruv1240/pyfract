@@ -261,12 +261,6 @@ The GUI is designed to be more friendly for normal users and beginners. It inclu
 - buttons to open or copy the output path
 - command preview for the equivalent CLI command
 
-## Project Files
-
-- [`pyfract.py`](c:\modulizer\pyfract.py): CLI and planning engine
-- [`pyfract_gui.py`](c:\modulizer\pyfract_gui.py): desktop GUI
-- [`build_exe.ps1`](c:\modulizer\build_exe.ps1): packaging helper
-
 ## Recommendations
 
 - Start with `safe`
