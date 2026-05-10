@@ -269,9 +269,5 @@ The GUI is designed to be more friendly for normal users and beginners. It inclu
 - Review `module_plan.json` after each run
 - Run your own tests after generation if correctness matters
 
-## Final Note
-
-Pyfract is meant to be a better and more beginner-friendly version of this kind of tool. It helps automate one of the most annoying parts of refactoring large Python files, while still being honest about the fact that bugs, edge cases, and manual cleanup can still happen.
-
 
 ```
